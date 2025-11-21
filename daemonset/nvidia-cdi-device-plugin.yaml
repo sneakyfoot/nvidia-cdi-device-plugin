@@ -21,8 +21,8 @@ spec:
 
       containers:
         - name: device-plugin
-          image: your-registry/nvidia-cdi-device-plugin:0.1.0
-          imagePullPolicy: IfNotPresent
+          image: ghcr.io/sneakyfoot/nvidia-cdi-device-plugin:0.1.0
+          imagePullPolicy: Always
 
           securityContext:
             privileged: true
