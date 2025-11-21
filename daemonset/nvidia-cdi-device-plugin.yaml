@@ -12,9 +12,9 @@ spec:
       labels:
         app: nvidia-cdi-device-plugin
     spec:
-      # Optional: constrain to GPU nodes with a label you already use
-      # nodeSelector:
-      #   nvidia-gpu: "true"
+      # Node label restriction
+      nodeSelector:
+        oom/nix: "true"
 
       tolerations:
         - operator: Exists   # tolerate common taints on infra nodes
