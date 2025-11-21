@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: nvidia-cdi-device-plugin
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      app: nvidia-cdi-device-plugin
+  template:
+    metadata:
+      labels:
+        app: nvidia-cdi-device-plugin
+    spec:
+      # Optional: constrain to GPU nodes with a label you already use
+      # nodeSelector:
+      #   nvidia-gpu: "true"
+
+      tolerations:
+        - operator: Exists   # tolerate common taints on infra nodes
+
+      containers:
+        - name: device-plugin
+          image: your-registry/nvidia-cdi-device-plugin:0.1.0
+          imagePullPolicy: IfNotPresent
+
+          securityContext:
+            privileged: true
+            allowPrivilegeEscalation: true
+
+          args:
+            - "--resource-name=nvidia.com/gpu"
+            - "--kubelet-dir=/var/lib/kubelet/device-plugins"
+            - "--socket-name=nvidia-cdi-device-plugin.sock"
+
+          volumeMounts:
+            - name: kubelet-device-plugins
+              mountPath: /var/lib/kubelet/device-plugins
+              readOnly: false
+            - name: dev-dir
+              mountPath: /dev
+              readOnly: true
+
+      volumes:
+        - name: kubelet-device-plugins
+          hostPath:
+            path: /var/lib/kubelet/device-plugins
+            type: Directory
+        - name: dev-dir
+          hostPath:
+            path: /dev
+            type: Directory
