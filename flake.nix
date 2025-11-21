@@ -35,19 +35,21 @@
           pkgs.dockerTools.buildImage {
             name = "nvidia-cdi-device-plugin";
             tag = "0.1.0";
-
-            contents = [
-              self.packages.${system}.nvidia-cdi-device-plugin
+        
+            copyToRoot = [
+              (pkgs.buildEnv {
+                name = "rootfs";
+                paths = [
+                  self.packages.${system}.nvidia-cdi-device-plugin
+                ];
+                # normalize the file layout so /bin exists
+                pathsToLink = [ "/bin" ];
+              })
             ];
-
+        
             config = {
               Entrypoint = [ "/bin/nvidia-cdi-device-plugin" ];
             };
-
-            extraCommands = ''
-              mkdir -p $out/bin
-              ln -s ${self.packages.${system}.nvidia-cdi-device-plugin}/bin/nvidia-cdi-device-plugin $out/bin/
-            '';
           };
       }
     );
