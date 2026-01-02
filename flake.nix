@@ -7,8 +7,9 @@
 
   outputs = { self, nixpkgs, ... }:
   let
+    inherit (nixpkgs) lib;
     systems = [ "x86_64-linux" ];
-    forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f system);
+    forAllSystems = f: lib.genAttrs systems (system: f system);
   in
   {
     ###########################################################################
@@ -20,14 +21,16 @@
       in
       {
         # ---- Binary ----
-        nvidia-cdi-device-plugin = pkgs.buildGoModule {
+        nvidia-cdi-device-plugin = pkgs.rustPlatform.buildRustPackage rec {
           pname = "nvidia-cdi-device-plugin";
           version = "0.1.0";
 
           src = ./.;
 
-          vendorHash = "sha256-3f/Y304K05HxFb1UMfAXeeo3sj5TD2dv84br+bqajtA=";
-          ldflags = [ "-s" "-w" ];
+          cargoLock.lockFile = ./Cargo.lock;
+          cargoHash = lib.fakeHash;
+
+          nativeBuildInputs = [ pkgs.protobuf ];
         };
 
         # ---- OCI container image ----
@@ -61,10 +64,14 @@
       let pkgs = import nixpkgs { inherit system; };
       in {
         default = pkgs.mkShell {
-          buildInputs = [
-            pkgs.go
-            pkgs.gopls
-            pkgs.go-tools
+          buildInputs = with pkgs; [
+            cargo
+            rustc
+            rustfmt
+            clippy
+            rust-analyzer
+            pkg-config
+            protobuf
           ];
         };
       }
