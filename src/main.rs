@@ -299,17 +299,17 @@ async fn maintain_registration(
                     Ok(new_handle) => {
                         let mut guard = server_handle.lock().await;
                         *guard = new_handle;
+                        drop(guard);
+                        if let Err(err) =
+                            register_with_kubelet(&kubelet_dir, &socket_name, &resource_name).await
+                        {
+                            eprintln!("registration with kubelet failed: {err}");
+                        }
                     }
                     Err(err) => {
                         eprintln!("failed to restart device plugin server: {err}");
                     }
                 }
-            }
-
-            if let Err(err) =
-                register_with_kubelet(&kubelet_dir, &socket_name, &resource_name).await
-            {
-                eprintln!("registration with kubelet failed: {err}");
             }
 
             select! {
