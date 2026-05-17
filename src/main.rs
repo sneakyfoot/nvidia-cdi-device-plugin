@@ -14,7 +14,7 @@ use kube::{
     Api, Client,
     api::{Patch, PatchParams},
 };
-use nvml_wrapper::{Nvml, error::NvmlError};
+use nvml_wrapper::{Nvml, enums::device::DeviceArchitecture, error::NvmlError};
 use tokio::{
     net::UnixListener,
     select,
@@ -91,10 +91,26 @@ struct GpuInfo {
     index: u32,
     uuid: String,
     name: String,
+    architecture: String,
     memory_bytes: u64,
     display_active: bool,
     compute_major: i32,
     compute_minor: i32,
+}
+
+fn architecture_str(a: DeviceArchitecture) -> &'static str {
+    match a {
+        DeviceArchitecture::Kepler => "kepler",
+        DeviceArchitecture::Maxwell => "maxwell",
+        DeviceArchitecture::Pascal => "pascal",
+        DeviceArchitecture::Volta => "volta",
+        DeviceArchitecture::Turing => "turing",
+        DeviceArchitecture::Ampere => "ampere",
+        DeviceArchitecture::Ada => "ada",
+        DeviceArchitecture::Hopper => "hopper",
+        DeviceArchitecture::Blackwell => "blackwell",
+        DeviceArchitecture::Unknown => "unknown",
+    }
 }
 
 fn enumerate_gpus(args: &Args) -> Result<Vec<GpuInfo>> {
@@ -130,10 +146,16 @@ fn enumerate_gpus(args: &Args) -> Result<Vec<GpuInfo>> {
         let cc = dev
             .cuda_compute_capability()
             .context("cuda_compute_capability")?;
+        let arch = match dev.architecture() {
+            Ok(a) => architecture_str(a).to_string(),
+            Err(NvmlError::NotSupported) => "unknown".to_string(),
+            Err(e) => return Err(anyhow!("architecture({idx}) failed: {e}")),
+        };
         out.push(GpuInfo {
             index: idx,
             uuid: dev.uuid().context("uuid")?,
             name: dev.name().context("name")?,
+            architecture: arch,
             memory_bytes: mem.total,
             display_active,
             compute_major: cc.major,
@@ -175,6 +197,13 @@ fn build_resource_slice(args: &Args, gpus: &[GpuInfo]) -> resv1::ResourceSlice {
                 "productName".into(),
                 resv1::DeviceAttribute {
                     string: Some(g.name.clone()),
+                    ..Default::default()
+                },
+            );
+            attrs.insert(
+                "architecture".into(),
+                resv1::DeviceAttribute {
+                    string: Some(g.architecture.clone()),
                     ..Default::default()
                 },
             );
@@ -511,6 +540,7 @@ async fn main() -> Result<()> {
             info!(
                 index = g.index,
                 name = %g.name,
+                arch = %g.architecture,
                 vram_mib = g.memory_bytes / (1024 * 1024),
                 display = g.display_active,
                 "discovered GPU"
