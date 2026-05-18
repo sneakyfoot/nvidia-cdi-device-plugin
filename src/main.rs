@@ -40,7 +40,11 @@ const DEFAULT_DRIVER_NAME: &str = "gpu.nvidia.com";
 const DEFAULT_DEVICE_CLASS: &str = "gpu.nvidia.com";
 const DEFAULT_EXTENDED_RESOURCE: &str = "nvidia.com/gpu";
 const DEFAULT_KUBELET_DIR: &str = "/var/lib/kubelet";
-const DRA_API_VERSION: &str = "v1";
+// kubelet 1.34's DRA plugin handler expects supported_versions to include
+// drapb.DRAPluginService — a hand-defined version tag (not the gRPC service
+// path) declared at staging/src/k8s.io/kubelet/pkg/apis/dra/v1/types.go.
+// See: kubernetes/kubernetes#release-1.34.
+const DRA_API_VERSION: &str = "v1.DRAPlugin";
 
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about, long_about = None)]

@@ -1195,7 +1195,7 @@ dependencies = [
 
 [[package]]
 name = "nvidia-cdi-device-plugin"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "anyhow",
  "clap",
