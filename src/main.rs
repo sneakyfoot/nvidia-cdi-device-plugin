@@ -16,14 +16,16 @@ use kube::{
 };
 use nvml_wrapper::{Nvml, enums::device::DeviceArchitecture, error::NvmlError};
 use tokio::{
-    net::UnixListener,
+    net::{TcpListener, UnixListener},
     select,
     sync::watch,
     time::sleep,
 };
-use tokio_stream::wrappers::UnixListenerStream;
+use tokio_stream::wrappers::TcpListenerStream;
 use tonic::{Request, Response, Status, async_trait, transport::Server};
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
+
+mod proxy;
 
 mod pb {
     pub mod dra {
@@ -470,52 +472,117 @@ impl pb::registration::registration_server::Registration for RegistrationService
     }
 }
 
-async fn serve_registration(
+/// Bind tonic to an internal `127.0.0.1:0` TCP socket and front it with a
+/// UDS proxy that rewrites the `:authority` HTTP/2 pseudo-header. Kubelet's
+/// grpc-go client sends the UDS path as `:authority`, which h2 rejects (see
+/// proxy.rs for the long version).
+async fn serve_proxied<S>(
     socket: PathBuf,
-    svc: RegistrationService,
-    mut shutdown: watch::Receiver<bool>,
-) -> Result<()> {
+    service: S,
+    shutdown: watch::Receiver<bool>,
+) -> Result<()>
+where
+    S: tower::Service<
+            http::Request<tonic::body::Body>,
+            Response = http::Response<tonic::body::Body>,
+            Error = std::convert::Infallible,
+        > + tonic::server::NamedService
+        + Clone
+        + Send
+        + Sync
+        + 'static,
+    S::Future: Send + 'static,
+{
     if socket.exists() {
         std::fs::remove_file(&socket)?;
     }
     if let Some(parent) = socket.parent() {
         tokio::fs::create_dir_all(parent).await.ok();
     }
-    let listener = UnixListener::bind(&socket)
+    let uds = UnixListener::bind(&socket)
         .with_context(|| format!("bind {}", socket.display()))?;
-    let incoming = UnixListenerStream::new(listener);
-    Server::builder()
-        .add_service(
-            pb::registration::registration_server::RegistrationServer::new(svc),
-        )
-        .serve_with_incoming_shutdown(incoming, async move {
-            let _ = shutdown.changed().await;
-        })
-        .await?;
+
+    let tcp = TcpListener::bind("127.0.0.1:0")
+        .await
+        .context("bind 127.0.0.1:0 for internal tonic listener")?;
+    let internal_addr = tcp.local_addr().context("local_addr")?;
+    info!(uds = %socket.display(), internal = %internal_addr, "h2-authority proxy listening");
+
+    let mut tonic_shutdown = shutdown.clone();
+    let tonic_handle = tokio::spawn(async move {
+        Server::builder()
+            .add_service(service)
+            .serve_with_incoming_shutdown(TcpListenerStream::new(tcp), async move {
+                let _ = tonic_shutdown.changed().await;
+            })
+            .await
+    });
+
+    let mut accept_shutdown = shutdown.clone();
+    let accept_loop = async move {
+        loop {
+            select! {
+                _ = accept_shutdown.changed() => {
+                    if *accept_shutdown.borrow() { break; }
+                }
+                res = uds.accept() => {
+                    let (kubelet_sock, _) = res.context("uds accept")?;
+                    tokio::spawn(async move {
+                        match TcpStreamConnect::connect(internal_addr).await {
+                            Ok(tonic_sock) => {
+                                let _ = tonic_sock.set_nodelay(true);
+                                if let Err(e) = proxy::proxy(kubelet_sock, tonic_sock).await {
+                                    debug!(err = %e, "proxy connection ended");
+                                }
+                            }
+                            Err(e) => warn!(err = %e, "dial internal tonic failed"),
+                        }
+                    });
+                }
+            }
+        }
+        Ok::<(), anyhow::Error>(())
+    };
+
+    accept_loop.await?;
+    let _ = tonic_handle.await;
     Ok(())
+}
+
+// Tiny indirection so the call site stays readable; lets us swap TcpStream
+// for something else (a hyper-util Builder, a DuplexStream, etc.) if we
+// need to later.
+struct TcpStreamConnect;
+impl TcpStreamConnect {
+    async fn connect(addr: std::net::SocketAddr) -> std::io::Result<tokio::net::TcpStream> {
+        tokio::net::TcpStream::connect(addr).await
+    }
+}
+
+async fn serve_registration(
+    socket: PathBuf,
+    svc: RegistrationService,
+    shutdown: watch::Receiver<bool>,
+) -> Result<()> {
+    serve_proxied(
+        socket,
+        pb::registration::registration_server::RegistrationServer::new(svc),
+        shutdown,
+    )
+    .await
 }
 
 async fn serve_dra(
     socket: PathBuf,
     svc: DraService,
-    mut shutdown: watch::Receiver<bool>,
+    shutdown: watch::Receiver<bool>,
 ) -> Result<()> {
-    if socket.exists() {
-        std::fs::remove_file(&socket)?;
-    }
-    if let Some(parent) = socket.parent() {
-        tokio::fs::create_dir_all(parent).await.ok();
-    }
-    let listener = UnixListener::bind(&socket)
-        .with_context(|| format!("bind {}", socket.display()))?;
-    let incoming = UnixListenerStream::new(listener);
-    Server::builder()
-        .add_service(pb::dra::dra_plugin_server::DraPluginServer::new(svc))
-        .serve_with_incoming_shutdown(incoming, async move {
-            let _ = shutdown.changed().await;
-        })
-        .await?;
-    Ok(())
+    serve_proxied(
+        socket,
+        pb::dra::dra_plugin_server::DraPluginServer::new(svc),
+        shutdown,
+    )
+    .await
 }
 
 #[tokio::main]

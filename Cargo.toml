@@ -1,6 +1,6 @@
 [package]
 name = "nvidia-cdi-device-plugin"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2024"
 
 [dependencies]
@@ -21,6 +21,8 @@ tokio-stream = { version = "0.1.15", features = ["net"] }
 tonic = "0.14.2"
 tonic-prost = "0.14.2"
 tower = "0.5.2"
+fluke-hpack = "0.3.1"
+http = "1"
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
 
