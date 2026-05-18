@@ -527,6 +527,10 @@ async fn main() -> Result<()> {
         )
         .init();
 
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .map_err(|_| anyhow!("rustls CryptoProvider already installed"))?;
+
     let args = Args::parse();
     if args.node_name.is_empty() {
         anyhow::bail!("--node-name (or NODE_NAME env) is required");

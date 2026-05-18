@@ -19,7 +19,7 @@
       {
         nvidia-cdi-device-plugin = pkgs.rustPlatform.buildRustPackage rec {
           pname = "nvidia-cdi-device-plugin";
-          version = "0.2.0";
+          version = "0.2.1";
 
           src = ./.;
 
@@ -31,7 +31,7 @@
         nvidia-cdi-device-plugin-image =
           pkgs.dockerTools.buildImage {
             name = "nvidia-cdi-device-plugin";
-            tag = "0.2.0";
+            tag = "0.2.1";
 
             copyToRoot = [
               (pkgs.buildEnv {
